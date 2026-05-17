@@ -121,15 +121,26 @@ foreach ($repo in $repoNames) {
   } else {
     $message = 'ci: add auto-approve caller workflow'
   }
-  $payload = @{ message = $message; content = $callerB64 }
-  if ($sha) { $payload.sha = $sha }
 
-  $tmp = New-TemporaryFile
-  $payload | ConvertTo-Json -Compress | Out-File -Encoding utf8 -FilePath $tmp
-  $putResult = $null
-  $putResult = gh api -X PUT "repos/$full/contents/$path" --input $tmp 2>&1
+  # Pass fields via `gh api -f key=value` so gh builds the JSON body itself.
+  # Avoids PS 5.1's `Out-File -Encoding utf8` BOM issue which makes the API
+  # respond with HTTP 400 "Problems parsing JSON".
+  $apiArgs = @(
+    'api',
+    '-X', 'PUT',
+    "repos/$full/contents/$path",
+    '-f', "message=$message",
+    '-f', "content=$callerB64"
+  )
+  if ($sha) { $apiArgs += @('-f', "sha=$sha") }
+
+  $putResult = ''
+  try {
+    $putResult = & gh @apiArgs 2>&1 | Out-String
+  } catch {
+    $putResult = $_.Exception.Message
+  }
   $putExit = $LASTEXITCODE
-  Remove-Item $tmp -ErrorAction SilentlyContinue
 
   if ($putExit -eq 0) {
     if ($existing) {
@@ -140,7 +151,7 @@ foreach ($repo in $repoNames) {
       $created++
     }
   } else {
-    Write-Host "  [FAIL]   $full -- $putResult"
+    Write-Host "  [FAIL]   $full -- $($putResult.Trim())"
   }
 }
 
