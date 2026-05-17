@@ -83,9 +83,9 @@ This PR adds the auto-approve caller workflow that invokes the reusable
 workflow at aks-builds/workflows/.github/workflows/auto-approve.yml.
 
 Once merged, PRs opened by aks-builds will be auto-approved by
-aks-codeowner-bot[bot] -- satisfying branch-protection's "approval
-from someone other than the PR author" rule without spinning up a
-second human reviewer.
+aks-codeowner-bot[bot] -- satisfying the branch-protection rule that
+requires an approval from someone other than the PR author, without
+spinning up a second human reviewer.
 
 Required repo secrets (already distributed by workflows/scripts/distribute-secrets.ps1):
   - APPROVER_APP_ID
@@ -93,6 +93,12 @@ Required repo secrets (already distributed by workflows/scripts/distribute-secre
 
 Filed by aks-builds/workflows/scripts/deploy-caller.ps1.
 '@
+
+# Write the PR body to a temp file once -- using WriteAllText with explicit
+# no-BOM UTF-8 so gh --body-file doesn't choke on a BOM. Reused for every
+# PR opened in this run; cleaned up after the loop.
+$prBodyFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'openspecpm-pr-body.md')
+[System.IO.File]::WriteAllText($prBodyFile, $prBody, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "Listing active repos for $Owner..."
 $rawNames = gh repo list $Owner --limit 1000 --json name,isArchived `
@@ -256,7 +262,7 @@ foreach ($repo in $repoNames) {
   try {
     $createResult = & gh pr create --repo $full `
       --head $prBranch --base $defaultBranch `
-      --title $prTitle --body $prBody 2>&1 | Out-String
+      --title $prTitle --body-file $prBodyFile 2>&1 | Out-String
   } catch { $createResult = $_.Exception.Message }
 
   if ($LASTEXITCODE -eq 0) {
@@ -287,3 +293,6 @@ if ($failureDetails.Count -gt 0) {
   Write-Host 'Failures:'
   foreach ($f in $failureDetails) { Write-Host "  $($f.repo) -- $($f.reason)" }
 }
+
+# Clean up the temp PR-body file.
+Remove-Item $prBodyFile -ErrorAction SilentlyContinue
