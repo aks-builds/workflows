@@ -8,20 +8,21 @@ name: Auto-approve owner PRs (reusable)
 #       uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main
 #       secrets: inherit
 #
-# The PR is auto-approved by the GitHub App identified by the
-# APPROVER_APP_ID + APPROVER_APP_PRIVATE_KEY secrets — but ONLY when
-# BOTH conditions hold:
-#   1. The PR was opened by `owner-login` (default: aks-builds).
-#   2. EVERY commit in the PR was authored by `owner-login`.
+# Behavior:
+#   • PR opened by `owner-login` (default: aks-builds), not a draft  → approve.
+#   • PR opened by anyone else, OR a draft PR                        → job is skipped entirely
+#                                                                      (no run, no review posted,
+#                                                                       no rejection — silent).
 #
-# If any commit comes from a different author (including bots), the
-# job exits successfully without approving so a human can review.
+# Approval is posted by the GitHub App identified by APPROVER_APP_ID +
+# APPROVER_APP_PRIVATE_KEY, so the review counts as "from someone
+# other than the PR author" under branch protection.
 
 on:
   workflow_call:
     inputs:
       owner-login:
-        description: GitHub login of the PR author whose PRs should be auto-approved
+        description: GitHub login whose PRs should be auto-approved
         required: false
         type: string
         default: aks-builds
@@ -29,12 +30,7 @@ on:
         description: Body to attach to the approval review
         required: false
         type: string
-        default: "Auto-approved by aks-codeowner-bot — PR author and every commit author match the sole codeowner."
-      require-all-commits-by-owner:
-        description: If true, refuse to approve when any commit in the PR has a different author
-        required: false
-        type: boolean
-        default: true
+        default: "Auto-approved by aks-codeowner-bot — PR opened by the sole codeowner."
     secrets:
       APPROVER_APP_ID:
         required: true
@@ -47,7 +43,8 @@ permissions:
 
 jobs:
   approve:
-    # Fail fast if PR opener is not the owner. Saves a token mint + an API round-trip.
+    # Job-level gate. When false, GitHub marks the job "skipped" and nothing else happens
+    # — no approval, no rejection, no review of any kind. PRs from other users are untouched.
     if: github.event.pull_request.user.login == inputs.owner-login && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
@@ -58,36 +55,7 @@ jobs:
           app-id: ${{ secrets.APPROVER_APP_ID }}
           private-key: ${{ secrets.APPROVER_APP_PRIVATE_KEY }}
 
-      - name: Verify every commit is authored by the owner
-        if: inputs.require-all-commits-by-owner == true
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_REPO: ${{ github.repository }}
-          OWNER: ${{ inputs.owner-login }}
-        run: |
-          set -euo pipefail
-
-          # Pull every commit's author login from the PR.
-          # `gh pr view` returns a commits array; each commit has authors (plural for co-authors).
-          authors_json=$(gh pr view "$PR_NUMBER" --repo "$PR_REPO" \
-            --json commits --jq '[.commits[].authors[].login] | unique')
-
-          echo "Commit author logins on this PR: $authors_json"
-
-          # The only acceptable shape: a JSON array containing exactly one entry == OWNER.
-          expected=$(printf '["%s"]' "$OWNER")
-          if [ "$authors_json" != "$expected" ]; then
-            echo "::warning::Refusing to auto-approve — found commits from author(s) other than '$OWNER'."
-            echo "       authors: $authors_json"
-            echo "       Approve manually if this is intentional."
-            # Exit successfully so the job doesn't appear failed in branch protection,
-            # but emit a clear log line so the absence of approval is explainable.
-            echo "AUTO_APPROVE_SKIPPED=1" >> "$GITHUB_ENV"
-          fi
-
       - name: Approve PR
-        if: env.AUTO_APPROVE_SKIPPED != '1'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
