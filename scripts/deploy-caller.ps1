@@ -84,15 +84,19 @@ $updated = 0
 foreach ($repo in $repoNames) {
   $full = "$Owner/$repo"
 
-  # Check whether the file already exists. gh api returns non-zero on 404.
+  # Check whether the file already exists. gh api exits non-zero on 404, which
+  # we expect for any repo that doesn't have the caller yet. Wrap in try/catch
+  # so $ErrorActionPreference='Stop' doesn't halt the loop.
   $existing = $null
   $sha = $null
-  $probe = gh api "repos/$full/contents/$path" 2>$null
-  if ($LASTEXITCODE -eq 0 -and $probe) {
-    try {
+  try {
+    $probe = gh api "repos/$full/contents/$path" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $probe) {
       $existing = $probe | ConvertFrom-Json
       $sha = $existing.sha
-    } catch { }
+    }
+  } catch {
+    # 404 or other API error -- proceed to create.
   }
 
   if ($existing -and -not $Overwrite) {
