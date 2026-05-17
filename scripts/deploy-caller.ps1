@@ -217,10 +217,14 @@ foreach ($repo in $repoNames) {
       -f "sha=$baseSha" 2>&1
   } catch { }
 
-  # SHA of any existing file on the PR branch (different from main's sha)
+  # SHA of any existing file on the PR branch (likely present from a prior
+  # partial run). Use an explicit ?ref= query string -- gh api's -f flag on
+  # GET requests doesn't always serialize fields as URL params, especially
+  # when the value contains a slash (the branch name has 'bot/...').
   $branchFileSha = $null
   try {
-    $branchProbe = gh api "repos/$full/contents/$path" -f "ref=$prBranch" 2>$null
+    $encodedRef = [Uri]::EscapeDataString($prBranch)
+    $branchProbe = gh api "repos/$full/contents/${path}?ref=$encodedRef" 2>$null
     if ($LASTEXITCODE -eq 0 -and $branchProbe) {
       $branchFileSha = ($branchProbe | ConvertFrom-Json).sha
     }
