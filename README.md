@@ -12,6 +12,8 @@ The central piece is **`auto-approve.yml`**, which approves PRs authored by `aks
 | [`.github/workflows/distribute-secrets.yml`](.github/workflows/distribute-secrets.yml) | `workflow_dispatch` job that pushes the bot's secrets to every active repo on the account. Triggered from the Actions tab. |
 | [`scripts/distribute-secrets.ps1`](scripts/distribute-secrets.ps1) | PowerShell version of the distributor for local runs (Windows-friendly). |
 | [`scripts/distribute-secrets.sh`](scripts/distribute-secrets.sh) | Bash version of the distributor for local runs (macOS/Linux). |
+| [`scripts/deploy-caller.ps1`](scripts/deploy-caller.ps1) | PowerShell: PUTs `.github/workflows/auto-approve.yml` into every active repo via the Contents API. |
+| [`scripts/deploy-caller.sh`](scripts/deploy-caller.sh) | Bash equivalent. |
 
 ## First-time setup
 
@@ -74,9 +76,27 @@ gh secret set DISTRIBUTOR_PAT --body "ghp_xxxxxxxxxxxxxxxx"
 
 Then trigger from the GitHub UI: **Actions → Distribute bot secrets to all repos → Run workflow** (start with `dry-run = true`).
 
-### 3. Wire each repo to call the reusable workflow
+### 3. Deploy the caller workflow into every repo
 
-In every repo that should auto-approve your own PRs, add `.github/workflows/auto-approve.yml`:
+The reusable workflow only fires on repos that have a tiny caller file. Use `deploy-caller`:
+
+```powershell
+cd C:\NashTech\workflows
+./scripts/deploy-caller.ps1 -DryRun
+# review which repos would receive the file, then:
+./scripts/deploy-caller.ps1
+```
+
+Or bash:
+
+```bash
+./scripts/deploy-caller.sh --dry-run
+./scripts/deploy-caller.sh
+```
+
+The script is **idempotent**: re-running on a repo that already has the file is a no-op. To roll out a change to the caller (e.g. enabling `wait-for-checks`), use `-Overwrite` / `--overwrite`.
+
+The file it deploys is:
 
 ```yaml
 name: Auto-approve
@@ -91,7 +111,7 @@ jobs:
     secrets: inherit
 ```
 
-That's the entire file. The `secrets: inherit` forwards `APPROVER_APP_ID` + `APPROVER_APP_PRIVATE_KEY` (which the distributor placed in the repo) into the reusable workflow.
+`secrets: inherit` forwards `APPROVER_APP_ID` + `APPROVER_APP_PRIVATE_KEY` (placed by `distribute-secrets`) into the reusable workflow.
 
 To wait for required status checks before approving:
 
