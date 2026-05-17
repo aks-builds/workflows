@@ -14,6 +14,7 @@ The central piece is **`auto-approve.yml`**, which approves PRs authored by `aks
 | [`scripts/distribute-secrets.sh`](scripts/distribute-secrets.sh) | Bash version of the distributor for local runs (macOS/Linux). |
 | [`scripts/deploy-caller.ps1`](scripts/deploy-caller.ps1) | PowerShell: PUTs `.github/workflows/auto-approve.yml` into every active repo via the Contents API. |
 | [`scripts/deploy-caller.sh`](scripts/deploy-caller.sh) | Bash equivalent. |
+| [`scripts/enable-actions-approval.ps1`](scripts/enable-actions-approval.ps1) | PowerShell: flips `can_approve_pull_request_reviews=true` on every active repo. **Required** — without this the bot's `gh pr review --approve` call is silently rejected even with a valid App token. |
 
 ## First-time setup
 
