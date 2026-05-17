@@ -1,0 +1,137 @@
+# workflows
+
+Reusable GitHub Actions workflows used across all of `aks-builds`'s repositories.
+
+The central piece is **`auto-approve.yml`**, which approves PRs authored by `aks-builds` using a GitHub App (`aks-codeowner-bot`) — satisfying branch-protection's "approval from someone other than the PR author" rule on solo repos without spinning up a second human account.
+
+## What's here
+
+| File | Purpose |
+|---|---|
+| [`.github/workflows/auto-approve.yml`](.github/workflows/auto-approve.yml) | Reusable workflow. Consumer repos call it via `uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main`. |
+| [`.github/workflows/distribute-secrets.yml`](.github/workflows/distribute-secrets.yml) | `workflow_dispatch` job that pushes the bot's secrets to every active repo on the account. Triggered from the Actions tab. |
+| [`scripts/distribute-secrets.ps1`](scripts/distribute-secrets.ps1) | PowerShell version of the distributor for local runs (Windows-friendly). |
+| [`scripts/distribute-secrets.sh`](scripts/distribute-secrets.sh) | Bash version of the distributor for local runs (macOS/Linux). |
+
+## First-time setup
+
+### 1. Create the GitHub App
+
+1. <https://github.com/settings/apps/new>
+2. Name: `aks-codeowner-bot` (or whatever's unique)
+3. Webhook: **uncheck Active**
+4. Repository permissions:
+   - **Pull requests:** Read & write
+   - **Contents:** Read
+   - **Metadata:** Read
+5. Installation target: **Only on this account**
+6. Create → note the **App ID** (top of settings page) → **Generate a private key** (downloads a `.pem`).
+7. Sidebar → **Install App** → install on **All repositories**.
+
+### 2. Distribute the secrets
+
+Pick one path.
+
+#### Option A — local (recommended for first run)
+
+```powershell
+# from a clone of this repo
+cd C:\NashTech\workflows
+./scripts/distribute-secrets.ps1 `
+  -AppId 123456 `
+  -PrivateKeyPath C:\path\to\aks-codeowner-bot.private-key.pem `
+  -DryRun
+
+# When the dry-run output looks right:
+./scripts/distribute-secrets.ps1 -AppId 123456 -PrivateKeyPath C:\path\to\bot.pem
+```
+
+Or bash:
+
+```bash
+./scripts/distribute-secrets.sh \
+  --app-id 123456 \
+  --private-key ~/keys/aks-codeowner-bot.private-key.pem \
+  --dry-run
+
+./scripts/distribute-secrets.sh --app-id 123456 --private-key ~/keys/bot.pem
+```
+
+#### Option B — from the Actions tab (zero-laptop run)
+
+One-time bootstrap: this repo needs three of its own secrets so the workflow can push to other repos.
+
+```powershell
+cd C:\NashTech\workflows
+gh secret set APPROVER_APP_ID --body "123456"
+gh secret set APPROVER_APP_PRIVATE_KEY --body "$(Get-Content C:\path\to\bot.pem -Raw)"
+
+# DISTRIBUTOR_PAT = your own classic PAT with `repo` scope.
+# Create at https://github.com/settings/tokens (Tokens classic).
+# Needed because GITHUB_TOKEN can't write secrets to OTHER repos.
+gh secret set DISTRIBUTOR_PAT --body "ghp_xxxxxxxxxxxxxxxx"
+```
+
+Then trigger from the GitHub UI: **Actions → Distribute bot secrets to all repos → Run workflow** (start with `dry-run = true`).
+
+### 3. Wire each repo to call the reusable workflow
+
+In every repo that should auto-approve your own PRs, add `.github/workflows/auto-approve.yml`:
+
+```yaml
+name: Auto-approve
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, synchronize, reopened]
+
+jobs:
+  call:
+    uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main
+    secrets: inherit
+```
+
+That's the entire file. The `secrets: inherit` forwards `APPROVER_APP_ID` + `APPROVER_APP_PRIVATE_KEY` (which the distributor placed in the repo) into the reusable workflow.
+
+To wait for required status checks before approving:
+
+```yaml
+jobs:
+  call:
+    uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main
+    with:
+      wait-for-checks: true
+    secrets: inherit
+```
+
+## Why a personal-account "centralized secrets" story needs the distributor
+
+GitHub's secret store for Actions is **per-repo on personal accounts**. Organization-level secrets exist but require an Organization account. The distributor closes the gap: one source of truth (this repo) + one command (`distribute-secrets`) pushes the value into every repo at once.
+
+If you ever convert your account to (or move repos into) a free Organization, you can:
+
+1. Set `APPROVER_APP_ID` + `APPROVER_APP_PRIVATE_KEY` once as **organization secrets** with access scope "all repositories".
+2. Drop the distributor entirely — the reusable workflow will pick them up automatically via `secrets: inherit`.
+
+Until then, run the distributor:
+
+- After creating any new repo (or run with `--exclude` for the ones you don't want covered).
+- After rotating the GitHub App's private key (re-download the `.pem`, re-run).
+- After adding a new account-wide secret variable.
+
+## Rotating the App's private key
+
+1. <https://github.com/settings/apps/aks-codeowner-bot> → **Generate a private key** → download new `.pem`.
+2. Re-run the distributor with the new file.
+3. Once you've confirmed PRs approve correctly, revoke the old key from the same settings page.
+
+## Pausing the bot
+
+Either:
+
+- **Suspend the installation:** <https://github.com/settings/installations> → suspend `aks-codeowner-bot`. Workflows still trigger but the `app-token` step will fail loudly.
+- **Soft pause:** comment out the `call:` job in the consumer repo, or rename the workflow file to `.disabled`.
+
+## License
+
+[MIT](LICENSE)

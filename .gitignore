@@ -1,0 +1,15 @@
+# Never commit private keys or local secret material
+*.pem
+*.p12
+*.pfx
+.env
+.env.local
+secrets/
+*.key
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

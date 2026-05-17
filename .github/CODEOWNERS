@@ -1,0 +1,6 @@
+# Default owner for everything
+*       @aks-builds
+
+# Workflows are infrastructure — extra-careful review.
+/.github/workflows/                @aks-builds
+/scripts/                          @aks-builds

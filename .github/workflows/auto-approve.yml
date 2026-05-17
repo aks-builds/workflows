@@ -1,0 +1,62 @@
+name: Auto-approve owner PRs (reusable)
+
+# Reusable workflow. Consumer repos invoke this from their own
+# .github/workflows/auto-approve.yml with:
+#
+#   jobs:
+#     call:
+#       uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main
+#       secrets: inherit
+#
+# The PR is auto-approved by the GitHub App identified by the
+# APPROVER_APP_ID + APPROVER_APP_PRIVATE_KEY secrets — but only when
+# the PR author matches `owner-login` (default: aks-builds).
+
+on:
+  workflow_call:
+    inputs:
+      owner-login:
+        description: GitHub login of the PR author whose PRs should be auto-approved
+        required: false
+        type: string
+        default: aks-builds
+      approval-message:
+        description: Body to attach to the approval review
+        required: false
+        type: string
+        default: "Auto-approved by aks-codeowner-bot — PR author is the sole codeowner."
+      wait-for-checks:
+        description: If true, wait for required status checks to succeed before approving
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      APPROVER_APP_ID:
+        required: true
+      APPROVER_APP_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  approve:
+    if: github.event.pull_request.user.login == inputs.owner-login && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint app installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APPROVER_APP_ID }}
+          private-key: ${{ secrets.APPROVER_APP_PRIVATE_KEY }}
+
+      - name: Approve PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_REPO: ${{ github.repository }}
+          BODY: ${{ inputs.approval-message }}
+        run: |
+          gh pr review "$PR_NUMBER" --repo "$PR_REPO" --approve --body "$BODY"
