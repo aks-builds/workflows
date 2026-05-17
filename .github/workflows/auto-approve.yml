@@ -9,14 +9,14 @@ name: Auto-approve owner PRs (reusable)
 #       secrets: inherit
 #
 # Behavior:
-#   • PR opened by `owner-login` (default: aks-builds), not a draft  → approve.
-#   • PR opened by anyone else, OR a draft PR                        → job is skipped entirely
-#                                                                      (no run, no review posted,
-#                                                                       no rejection — silent).
+#   - PR opened by `owner-login` (default: aks-builds), not a draft  => approve.
+#   - PR opened by anyone else, OR a draft PR                        => job is skipped entirely
+#                                                                       (no run, no review posted,
+#                                                                        no rejection - silent).
 #
 # Approval is posted by the GitHub App identified by APPROVER_APP_ID +
-# APPROVER_APP_PRIVATE_KEY, so the review counts as "from someone
-# other than the PR author" under branch protection.
+# APPROVER_APP_PRIVATE_KEY, so the review counts as "from someone other
+# than the PR author" under branch protection.
 
 on:
   workflow_call:
@@ -30,7 +30,7 @@ on:
         description: Body to attach to the approval review
         required: false
         type: string
-        default: "Auto-approved by aks-codeowner-bot — PR opened by the sole codeowner."
+        default: "Auto-approved by aks-codeowner-bot - PR opened by the sole codeowner."
     secrets:
       APPROVER_APP_ID:
         required: true
@@ -44,7 +44,7 @@ permissions:
 jobs:
   approve:
     # Job-level gate. When false, GitHub marks the job "skipped" and nothing else happens
-    # — no approval, no rejection, no review of any kind. PRs from other users are untouched.
+    # - no approval, no rejection, no review of any kind. PRs from other users are untouched.
     if: github.event.pull_request.user.login == inputs.owner-login && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
