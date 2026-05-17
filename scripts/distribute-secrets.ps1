@@ -51,23 +51,30 @@ if (-not (Test-Path $PrivateKeyPath)) {
 $privateKey = Get-Content $PrivateKeyPath -Raw
 
 Write-Host "Listing active repos for $Owner..."
-$reposJson = gh repo list $Owner --limit 1000 --json name,isArchived
-$repos = $reposJson | ConvertFrom-Json | Where-Object {
-  -not $_.isArchived -and $ExcludeRepos -notcontains $_.name
-}
 
-if (-not $repos -or $repos.Count -eq 0) {
-  Write-Warning 'No repos found.'
+# Let gh's built-in jq evaluator do the filtering server-side.
+# It emits one repo name per line, which PowerShell captures cleanly as a string array
+# — avoiding the multi-line-JSON parsing trap.
+$rawNames = gh repo list $Owner --limit 1000 --json name,isArchived `
+  --jq '.[] | select(.isArchived == false) | .name'
+
+# Normalize to array (a single result comes back as a bare string).
+$repoNames = @($rawNames) | Where-Object { $_ -and ($ExcludeRepos -notcontains $_) }
+
+if (-not $repoNames -or $repoNames.Count -eq 0) {
+  Write-Warning 'No repos found. Confirm `gh auth status` shows you are logged in as the right account.'
+  Write-Host  '  Run: gh repo list ' $Owner ' --limit 5'
   exit 0
 }
 
-Write-Host "Found $($repos.Count) active repos."
+Write-Host "Found $($repoNames.Count) active repos (after applying --ExcludeRepos)."
 
 $applied = 0
-foreach ($repo in $repos) {
-  $full = "$Owner/$($repo.name)"
+foreach ($repo in $repoNames) {
+  $full = "$Owner/$repo"
   if ($DryRun) {
     Write-Host "[dry-run] would set secrets on $full"
+    $applied++
     continue
   }
   Write-Host "→ $full"
@@ -78,7 +85,7 @@ foreach ($repo in $repos) {
 
 Write-Host ""
 if ($DryRun) {
-  Write-Host "Dry run complete. Re-run without -DryRun to apply."
+  Write-Host "Dry run complete. Would distribute to $applied repos. Re-run without -DryRun to apply."
 } else {
   Write-Host "Distributed to $applied repos. Re-run after rotating the app's private key."
 }
