@@ -14,9 +14,20 @@ name: Auto-approve owner PRs (reusable)
 #                                                                       (no run, no review posted,
 #                                                                        no rejection - silent).
 #
-# Approval is posted by the GitHub App identified by APPROVER_APP_ID +
-# APPROVER_APP_PRIVATE_KEY, so the review counts as "from someone other
-# than the PR author" under branch protection.
+# Two independent approver paths run in parallel; both attempt to approve.
+# Each path is gated on its own secret being present, so consumer repos
+# can configure either, both, or - if they want belt-and-suspenders -
+# both for two distinct review identities.
+#
+#   1) GitHub App  (APPROVER_APP_ID + APPROVER_APP_PRIVATE_KEY): approval
+#      posted by the bot identity.
+#   2) Secondary-account PAT (APPROVER_PAT): approval posted by the user
+#      who owns the PAT. Useful when an organization wants a real human
+#      identity in the review history alongside / instead of the bot.
+#
+# Both reviews count as "from someone other than the PR author" under
+# branch protection, as long as the App/PAT identity differs from the
+# author.
 
 on:
   workflow_call:
@@ -27,15 +38,22 @@ on:
         type: string
         default: aks-builds
       approval-message:
-        description: Body to attach to the approval review
+        description: Body to attach to the App-based approval review
         required: false
         type: string
         default: "Auto-approved by aks-codeowner-bot - PR opened by the sole codeowner."
+      pat-approval-message:
+        description: Body to attach to the PAT-based approval review (second reviewer)
+        required: false
+        type: string
+        default: "Auto-approved by aks-builds secondary account - PR opened by the sole codeowner."
     secrets:
       APPROVER_APP_ID:
-        required: true
+        required: false
       APPROVER_APP_PRIVATE_KEY:
-        required: true
+        required: false
+      APPROVER_PAT:
+        required: false
 
 permissions:
   contents: read
@@ -45,21 +63,56 @@ jobs:
   approve:
     # Job-level gate. When false, GitHub marks the job "skipped" and nothing else happens
     # - no approval, no rejection, no review of any kind. PRs from other users are untouched.
+    # Job name kept as `approve` (rather than `approve-app`) for backward compatibility
+    # with consumer repos that may list it as a required status check.
     if: github.event.pull_request.user.login == inputs.owner-login && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
+      - name: Skip if App credentials are not configured
+        id: gate
+        env:
+          APP_ID: ${{ secrets.APPROVER_APP_ID }}
+        run: |
+          if [ -z "${APP_ID:-}" ]; then
+            echo "APPROVER_APP_ID not configured; skipping App-based approval."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Mint app installation token
+        if: steps.gate.outputs.configured == 'true'
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.APPROVER_APP_ID }}
           private-key: ${{ secrets.APPROVER_APP_PRIVATE_KEY }}
 
-      - name: Approve PR
+      - name: Approve PR (App)
+        if: steps.gate.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_REPO: ${{ github.repository }}
           BODY: ${{ inputs.approval-message }}
         run: |
+          gh pr review "$PR_NUMBER" --repo "$PR_REPO" --approve --body "$BODY"
+
+  approve-pat:
+    # Second approver identity. Runs in parallel with `approve`.
+    # When APPROVER_PAT is not configured, the job runs but exits cleanly without posting a review.
+    if: github.event.pull_request.user.login == inputs.owner-login && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approve PR (secondary account PAT)
+        env:
+          GH_TOKEN: ${{ secrets.APPROVER_PAT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_REPO: ${{ github.repository }}
+          BODY: ${{ inputs.pat-approval-message }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "APPROVER_PAT not configured; skipping PAT-based approval."
+            exit 0
+          fi
           gh pr review "$PR_NUMBER" --repo "$PR_REPO" --approve --body "$BODY"
