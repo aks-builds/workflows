@@ -13,6 +13,11 @@
 .PARAMETER PrivateKeyPath
   Path to the .pem private key file downloaded from the app settings.
 
+.PARAMETER ApproverPat
+  The approver account's classic PAT (repo scope). Falls back to $env:APPROVER_PAT.
+  Strongly recommended: without it, consumer auto-approve posts App-only reviews
+  that do NOT count toward required-review rules.
+
 .PARAMETER Owner
   GitHub account whose repos receive the secrets. Defaults to "aks-builds".
 
@@ -36,6 +41,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$AppId,
   [Parameter(Mandatory = $true)][string]$PrivateKeyPath,
+  [string]$ApproverPat = $env:APPROVER_PAT,
   [string]$Owner = 'aks-builds',
   [string[]]$ExcludeRepos = @(),
   [switch]$DryRun
@@ -54,6 +60,10 @@ if (-not (Test-Path $PrivateKeyPath)) {
 }
 
 $privateKey = Get-Content $PrivateKeyPath -Raw
+
+if (-not $ApproverPat) {
+  Write-Warning 'No -ApproverPat / $env:APPROVER_PAT given. APPROVER_PAT will NOT be distributed; consumer auto-approve will post App-only reviews that do NOT count toward required-review rules.'
+}
 
 Write-Host "Listing active repos for $Owner..."
 
@@ -85,6 +95,9 @@ foreach ($repo in $repoNames) {
   Write-Host "  [set]    $full"
   gh secret set APPROVER_APP_ID --body $AppId --repo $full
   $privateKey | gh secret set APPROVER_APP_PRIVATE_KEY --repo $full
+  if ($ApproverPat) {
+    $ApproverPat | gh secret set APPROVER_PAT --repo $full
+  }
   $applied++
 }
 
