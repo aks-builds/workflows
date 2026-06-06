@@ -106,6 +106,10 @@ on:
   pull_request:
     types: [opened, ready_for_review, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   call:
     uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main
@@ -113,6 +117,8 @@ jobs:
 ```
 
 `secrets: inherit` forwards `APPROVER_APP_ID` + `APPROVER_APP_PRIVATE_KEY` (placed by `distribute-secrets`) into the reusable workflow.
+
+> **The `permissions:` block is required, not optional.** A called workflow can never be granted more token scope than its caller. The reusable workflow requests `pull-requests: write` to post the approval, so the caller must grant at least that much. If you omit the block, the caller inherits the repo's default token — and on the common read-only default the entire run fails **at startup** (no jobs, no logs) with: `The workflow is requesting 'pull-requests: write', but is only allowed 'pull-requests: none'.` Setting it per-caller keeps the token least-privilege; the alternative (flipping the repo-wide default to read/write) is broader and not recommended.
 
 To wait for required status checks before approving:
 
