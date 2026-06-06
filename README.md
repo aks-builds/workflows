@@ -9,7 +9,7 @@ The central piece is **`auto-approve.yml`**, which approves PRs authored by `aks
 | File | Purpose |
 |---|---|
 | [`.github/workflows/auto-approve.yml`](.github/workflows/auto-approve.yml) | Reusable workflow. Consumer repos call it via `uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main`. |
-| [`.github/workflows/distribute-secrets.yml`](.github/workflows/distribute-secrets.yml) | `workflow_dispatch` job that pushes the bot's secrets to every active repo on the account. Triggered from the Actions tab. |
+| [`.github/workflows/distribute-secrets.yml`](.github/workflows/distribute-secrets.yml) | `workflow_dispatch` job that pushes the auto-approve secrets — `APPROVER_APP_ID` + `APPROVER_APP_PRIVATE_KEY` and (when set) `APPROVER_PAT` — to every active repo. Triggered from the Actions tab. |
 | [`scripts/distribute-secrets.ps1`](scripts/distribute-secrets.ps1) | PowerShell version of the distributor for local runs (Windows-friendly). |
 | [`scripts/distribute-secrets.sh`](scripts/distribute-secrets.sh) | Bash version of the distributor for local runs (macOS/Linux). |
 | [`scripts/deploy-caller.ps1`](scripts/deploy-caller.ps1) | PowerShell: PUTs `.github/workflows/auto-approve.yml` into every active repo via the Contents API. |
@@ -48,13 +48,16 @@ cd C:\NashTech\workflows
   -PrivateKeyPath C:\path\to\aks-codeowner-bot.private-key.pem `
   -DryRun
 
-# When the dry-run output looks right:
+# When the dry-run output looks right (include the approver PAT so it's
+# distributed too — without it, approvals are posted but don't COUNT):
+$env:APPROVER_PAT = 'ghp_approver_account_pat'
 ./scripts/distribute-secrets.ps1 -AppId 123456 -PrivateKeyPath C:\path\to\bot.pem
 ```
 
 Or bash:
 
 ```bash
+export APPROVER_PAT='ghp_approver_account_pat'
 ./scripts/distribute-secrets.sh \
   --app-id 123456 \
   --private-key ~/keys/aks-codeowner-bot.private-key.pem \
@@ -65,12 +68,17 @@ Or bash:
 
 #### Option B — from the Actions tab (zero-laptop run)
 
-One-time bootstrap: this repo needs three of its own secrets so the workflow can push to other repos.
+One-time bootstrap: this repo needs its own secrets so the workflow can push to other repos.
 
 ```powershell
 cd C:\NashTech\workflows
 gh secret set APPROVER_APP_ID --body "123456"
 gh secret set APPROVER_APP_PRIVATE_KEY --body "$(Get-Content C:\path\to\bot.pem -Raw)"
+
+# APPROVER_PAT = the approver account's (e.g. aks-reviewes) classic PAT, repo scope.
+# REQUIRED for approvals to COUNT: a GitHub App review does not satisfy
+# required-review rules, so the PAT posts the review as a real write collaborator.
+gh secret set APPROVER_PAT --body "ghp_approver_account_pat"
 
 # DISTRIBUTOR_PAT = your own classic PAT with `repo` scope.
 # Create at https://github.com/settings/tokens (Tokens classic).
