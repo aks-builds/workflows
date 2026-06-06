@@ -15,6 +15,9 @@ The central piece is **`auto-approve.yml`**, which approves PRs authored by `aks
 | [`scripts/deploy-caller.ps1`](scripts/deploy-caller.ps1) | PowerShell: PUTs `.github/workflows/auto-approve.yml` into every active repo via the Contents API. |
 | [`scripts/deploy-caller.sh`](scripts/deploy-caller.sh) | Bash equivalent. |
 | [`scripts/enable-actions-approval.ps1`](scripts/enable-actions-approval.ps1) | PowerShell: flips `can_approve_pull_request_reviews=true` on every active repo. **Required** — without this the bot's `gh pr review --approve` call is silently rejected even with a valid App token. |
+| [`.github/workflows/grant-approver-collaborator.yml`](.github/workflows/grant-approver-collaborator.yml) | `workflow_dispatch` job that grants the approver account write access on every caller repo and auto-accepts the invite. Triggered from the Actions tab. |
+| [`scripts/grant-approver-collaborator.ps1`](scripts/grant-approver-collaborator.ps1) | PowerShell: invites the approver account (`aks-reviewes`) as a **write** collaborator on every repo that calls auto-approve, then accepts the invite using `APPROVER_PAT`. **Required** — approvals only *count* toward required-review rules when the approver has write access. |
+| [`scripts/grant-approver-collaborator.sh`](scripts/grant-approver-collaborator.sh) | Bash equivalent. |
 
 ## First-time setup
 
@@ -130,6 +133,42 @@ jobs:
       wait-for-checks: true
     secrets: inherit
 ```
+
+### 4. Grant the approver account write access
+
+> **Required — without this, approvals are posted but ignored.** Branch
+> rules (and rulesets) only **count** approving reviews from identities with
+> **write** access to the repo. The bot/PAT can submit an approval, but if the
+> approving account is only a read collaborator (or not a collaborator at all),
+> the review shows as "Approved" yet `reviewDecision` stays `REVIEW_REQUIRED`
+> and the PR never satisfies `required_approving_review_count`.
+
+Adding a collaborator creates a *pending invitation* the approver must accept,
+so the script does both — invites with the owner's admin auth, then accepts
+using the approver's own token (`APPROVER_PAT`):
+
+```powershell
+cd C:\NashTech\workflows
+$env:APPROVER_PAT = 'ghp_xxxxxxxxxxxxxxxx'   # aks-reviewes's token
+./scripts/grant-approver-collaborator.ps1 -DryRun
+# review, then:
+./scripts/grant-approver-collaborator.ps1
+```
+
+Or bash:
+
+```bash
+export APPROVER_PAT='ghp_xxxxxxxxxxxxxxxx'
+./scripts/grant-approver-collaborator.sh --dry-run
+./scripts/grant-approver-collaborator.sh
+```
+
+Or zero-laptop, from the Actions tab: **Grant approver write access to all
+caller repos → Run workflow** (needs `DISTRIBUTOR_PAT` + `APPROVER_PAT` set as
+secrets on this repo). By default it targets only repos that have the
+auto-approve caller; pass `--all-repos` / the `all-repos` input to cover every
+active repo. It's idempotent — repos where the approver already has write are
+skipped.
 
 ## Why a personal-account "centralized secrets" story needs the distributor
 
