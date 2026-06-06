@@ -3,10 +3,20 @@ name: Auto-approve owner PRs (reusable)
 # Reusable workflow. Consumer repos invoke this from their own
 # .github/workflows/auto-approve.yml with:
 #
+#   permissions:
+#     contents: read
+#     pull-requests: write
 #   jobs:
 #     call:
 #       uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main
 #       secrets: inherit
+#
+# The caller MUST set `permissions: pull-requests: write`. A called workflow can
+# never be granted more token scope than its caller, and this workflow requests
+# `pull-requests: write` (below) to post the approval. If the caller omits the
+# block it inherits the repo's default token; on a read-only default the run
+# fails at startup with:
+#   "requesting 'pull-requests: write', but is only allowed 'pull-requests: none'".
 #
 # Behavior:
 #   - PR opened by `owner-login` (default: aks-builds), not a draft  => approve.

@@ -44,6 +44,14 @@ on:
   pull_request:
     types: [opened, ready_for_review, synchronize, reopened]
 
+# Required: the reusable workflow requests `pull-requests: write` to post the
+# approval, and a called workflow can never exceed its caller'"'"'s token scope.
+# Omit this and the run dies at startup with "requesting '"'"'pull-requests: write'"'"',
+# but is only allowed '"'"'pull-requests: none'"'"'".
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   call:
     uses: aks-builds/workflows/.github/workflows/auto-approve.yml@main
