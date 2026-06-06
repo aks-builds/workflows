@@ -1,0 +1,66 @@
+name: Grant approver write access to all caller repos
+
+# Gives the secondary approver account (aks-reviewes) write access to every
+# repo that calls the auto-approve workflow, and auto-accepts the invitation,
+# so its approvals actually COUNT toward required-review rules.
+#
+# Run on demand from the Actions tab. Always dry-run first.
+#
+# Required secrets in *this* repo (one-time setup):
+#   - DISTRIBUTOR_PAT  PAT with `repo` scope (admin on your repos) -- SENDS the
+#                      collaborator invite.
+#   - APPROVER_PAT     The approver account's own token -- ACCEPTS the invite.
+#                      Without it, invites are sent but left pending.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Preview without inviting/accepting'
+        required: false
+        type: boolean
+        default: true
+      approver:
+        description: 'Approver account login'
+        required: false
+        type: string
+        default: aks-reviewes
+      all-repos:
+        description: 'Target every active repo (not just auto-approve callers)'
+        required: false
+        type: boolean
+        default: false
+      exclude-repos:
+        description: 'Comma-separated repo names to skip'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  grant:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.DISTRIBUTOR_PAT }}
+      APPROVER_PAT: ${{ secrets.APPROVER_PAT }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate secrets present
+        run: |
+          [[ -z "$GH_TOKEN" ]] && { echo "::error::Missing repo secret DISTRIBUTOR_PAT"; exit 1; }
+          if [[ -z "$APPROVER_PAT" ]]; then
+            echo "::warning::APPROVER_PAT not set -- invites will be sent but left pending."
+          fi
+          exit 0
+
+      - name: Grant + accept
+        run: |
+          chmod +x scripts/grant-approver-collaborator.sh
+          args=(--approver "${{ inputs.approver }}")
+          [[ "${{ inputs.dry-run }}" == "true" ]] && args+=(--dry-run)
+          [[ "${{ inputs.all-repos }}" == "true" ]] && args+=(--all-repos)
+          [[ -n "${{ inputs.exclude-repos }}" ]] && args+=(--exclude "${{ inputs.exclude-repos }}")
+          ./scripts/grant-approver-collaborator.sh "${args[@]}"
